@@ -163,12 +163,12 @@ table.med .db:hover{background:#fdecea;color:var(--red)}
   <div class="images-grid" id="imagesGrid">
     <div class="drop-zone" id="dropZone" onclick="document.getElementById('imgInput').click()">
       <div class="up-icon"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div>
-      <h3>Drop images here</h3>
-      <p>Add one or multiple pages</p>
-      <p style="margin-top:8px;font-size:10px;color:#0f7b6c;background:#e8f8f5;padding:4px 10px;border-radius:5px;display:inline-block">JPG &middot; PNG &middot; HEIC</p>
+      <h3>Drop files here</h3>
+      <p>Images or PDF discharge papers</p>
+      <p style="margin-top:8px;font-size:10px;color:#0f7b6c;background:#e8f8f5;padding:4px 10px;border-radius:5px;display:inline-block">JPG &middot; PNG &middot; HEIC &middot; PDF</p>
     </div>
   </div>
-  <input type="file" id="imgInput" accept="image/*" multiple style="display:none" onchange="handleImages(this)">
+  <input type="file" id="imgInput" accept="image/*,.pdf,application/pdf" multiple style="display:none" onchange="handleImages(this)">
   <div class="extract-bar">
     <button class="extract-btn" id="extractBtn" onclick="extractAllMeds()">&#9881; Extract medications from all images</button>
   </div>
@@ -312,14 +312,29 @@ initTables();
 
 /* IMAGE HANDLING */
 function handleImages(input){
-  Array.from(input.files).forEach(f=>{if(f.type.startsWith("image/"))loadFile(f);});
+  Array.from(input.files).forEach(f=>{
+    if(f.type.startsWith("image/")) loadFile(f);
+    else if(f.type==="application/pdf"||f.name.toLowerCase().endsWith(".pdf")) loadPDF(f);
+  });
   input.value="";
 }
 
 function loadFile(file){
   const reader=new FileReader();
   reader.onload=e=>{
-    images.push({b64:e.target.result.split(",")[1],mime:file.type||"image/jpeg",src:e.target.result});
+    images.push({b64:e.target.result.split(",")[1],mime:file.type||"image/jpeg",src:e.target.result,isPDF:false,name:file.name});
+    renderThumbs();
+  };
+  reader.readAsDataURL(file);
+}
+
+function loadPDF(file){
+  const reader=new FileReader();
+  reader.onload=e=>{
+    const b64=e.target.result.split(",")[1];
+    // Use a PDF icon as the thumbnail src
+    const pdfThumb="data:image/svg+xml;base64,"+btoa(`<svg xmlns='http://www.w3.org/2000/svg' width='130' height='100' viewBox='0 0 130 100'><rect width='130' height='100' rx='8' fill='%23fdecea'/><text x='65' y='38' text-anchor='middle' font-size='28' font-family='Arial'>📄</text><text x='65' y='62' text-anchor='middle' font-size='11' font-family='Arial' fill='%23a02020' font-weight='bold'>PDF</text><text x='65' y='80' text-anchor='middle' font-size='9' font-family='Arial' fill='%23a02020'>${file.name.substring(0,18)}</text></svg>`);
+    images.push({b64,mime:"application/pdf",src:pdfThumb,isPDF:true,name:file.name});
     renderThumbs();
   };
   reader.readAsDataURL(file);
@@ -331,7 +346,7 @@ function renderThumbs(){
   images.forEach((img,i)=>{
     const w=document.createElement("div");
     w.className="thumb-wrap";
-    w.innerHTML=`<img src="${img.src}" alt="Page ${i+1}"><span class="pg">Page ${i+1}</span><button class="rm" onclick="removeImg(${i})">&#215;</button>`;
+    w.innerHTML=`<img src="${img.src}" alt="Page ${i+1}"><span class="pg">${img.isPDF?"PDF":"Page "+(i+1)}</span><button class="rm" onclick="removeImg(${i})">&#215;</button>`;
     grid.appendChild(w);
   });
   const add=document.createElement("div");
@@ -368,7 +383,10 @@ function setupDrop(){
   dz.addEventListener("dragleave",()=>dz.classList.remove("drag"));
   dz.addEventListener("drop",e=>{
     e.preventDefault();dz.classList.remove("drag");
-    Array.from(e.dataTransfer.files).forEach(f=>{if(f.type.startsWith("image/"))loadFile(f);});
+    Array.from(e.dataTransfer.files).forEach(f=>{
+      if(f.type.startsWith("image/")) loadFile(f);
+      else if(f.type==="application/pdf"||f.name.toLowerCase().endsWith(".pdf")) loadPDF(f);
+    });
   });
 }
 setupDrop();
@@ -386,7 +404,12 @@ async function extractAllMeds(){
 
   setStatus(`<span class="spinner"></span> Reading ${images.length} image${images.length>1?"s":""}...`,"loading");
 
-  const content=images.map(img=>({type:"image",source:{type:"base64",media_type:img.mime,data:img.b64}}));
+  const content=images.map(img=>{
+    if(img.isPDF){
+      return {type:"document",source:{type:"base64",media_type:"application/pdf",data:img.b64}};
+    }
+    return {type:"image",source:{type:"base64",media_type:img.mime,data:img.b64}};
+  });
   content.push({type:"text",text:`You are a clinical pharmacist. Analyze ALL provided discharge paper images and extract every medication listed across all pages.
 
 STRICT PRIVACY: Return ONLY medication data. Do NOT return patient name, DOB, MRN, address, phone, or any identifiers.
